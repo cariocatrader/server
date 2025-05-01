@@ -1,2 +1,1 @@
-web: gunicorn serve_db:app --bind 0.0.0.0:$PORT
-
+web: python serve_db.py
