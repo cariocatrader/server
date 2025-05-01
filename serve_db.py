@@ -3,6 +3,8 @@ import sqlite3
 
 app = Flask(__name__)
 
+DB_PATH = "shared.db"
+
 @app.route("/")
 def home():
     return "WebService está online!"
@@ -13,31 +15,32 @@ def get_candle():
     timestamp = request.args.get("timestamp", type=int)
 
     if not paridade or not timestamp:
-        return jsonify({"error": "parâmetros inválidos", "success": False})
+        return jsonify({"error": "Parâmetros ausentes", "success": False})
 
     try:
-        conn = sqlite3.connect("shared.db")
+        conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         cur.execute("""
-            SELECT symbol, epoch, open, close FROM candles 
-            WHERE symbol = ? AND epoch <= ?
-            ORDER BY epoch DESC LIMIT 1
+            SELECT symbol, epoch, open, high, low, close, volume
+            FROM candles
+            WHERE symbol = ?
+            AND epoch <= ?
+            ORDER BY epoch DESC
+            LIMIT 1
         """, (paridade, timestamp))
         row = cur.fetchone()
         conn.close()
 
         if row:
-            return jsonify({
-                "success": True,
-                "candle": {
-                    "symbol": row[0],
-                    "epoch": row[1],
-                    "open": row[2],
-                    "close": row[3]
-                }
-            })
+            keys = ["symbol", "epoch", "open", "high", "low", "close", "volume"]
+            candle = dict(zip(keys, row))
+            return jsonify({"success": True, "candle": candle})
         else:
             return jsonify({"success": False, "error": "Candle não encontrado"})
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+
+# 🔥 ESTA PARTE É ESSENCIAL PARA FUNCIONAR NO RENDER:
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
