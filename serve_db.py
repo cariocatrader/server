@@ -3,23 +3,28 @@ import sqlite3
 
 app = Flask(__name__)
 
+@app.route("/")
+def home():
+    return "WebService está online!"
+
 @app.route("/get_candle")
 def get_candle():
     paridade = request.args.get("paridade")
-    timestamp = int(request.args.get("timestamp"))
-    
+    timestamp = request.args.get("timestamp", type=int)
+
+    if not paridade or not timestamp:
+        return jsonify({"error": "parâmetros inválidos", "success": False})
+
     try:
-        con = sqlite3.connect("shared.db")
-        cur = con.cursor()
+        conn = sqlite3.connect("shared.db")
+        cur = conn.cursor()
         cur.execute("""
-            SELECT symbol, epoch, open, close
-            FROM candles
+            SELECT symbol, epoch, open, close FROM candles 
             WHERE symbol = ? AND epoch <= ?
-            ORDER BY epoch DESC
-            LIMIT 1
+            ORDER BY epoch DESC LIMIT 1
         """, (paridade, timestamp))
         row = cur.fetchone()
-        con.close()
+        conn.close()
 
         if row:
             return jsonify({
@@ -32,6 +37,7 @@ def get_candle():
                 }
             })
         else:
-            return jsonify({"success": False, "error": "Candle não encontrado"}), 404
+            return jsonify({"success": False, "error": "Candle não encontrado"})
+
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": str(e)})
