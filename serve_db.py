@@ -20,6 +20,7 @@ def init_db():
             close REAL,
             volume INTEGER,
             PRIMARY KEY (symbol, epoch)
+        )
         ''')
         con.commit()
         con.close()
@@ -107,22 +108,19 @@ def get_candles():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 🔥 NOVO ENDPOINT - Candle Exato para Verificação de Resultados
+# Novo endpoint para candle exato
 @app.route('/get_candle_exact', methods=['GET'])
 def get_candle_exact():
     try:
         paridade = request.args.get("paridade")
-        timeframe = int(request.args.get("timeframe"))  # Em segundos (ex: 300 para M5)
-        open_time = int(request.args.get("open_time"))   # Timestamp de abertura
+        timeframe = int(request.args.get("timeframe"))
+        open_time = int(request.args.get("open_time"))
 
-        # Calcula o timestamp de fechamento esperado
         close_time = open_time + timeframe
 
         con = sqlite3.connect(DB_PATH)
         con.row_factory = sqlite3.Row
         cur = con.cursor()
-        
-        # Consulta otimizada para encontrar o candle exato
         cur.execute("""
             SELECT * FROM candles
             WHERE symbol = ? 
@@ -131,7 +129,6 @@ def get_candle_exact():
             ORDER BY epoch ASC
             LIMIT 1
         """, (paridade, open_time, close_time))
-        
         row = cur.fetchone()
         con.close()
 
@@ -144,15 +141,12 @@ def get_candle_exact():
                     "high": candle["high"],
                     "low": candle["low"],
                     "close": candle["close"],
-                    "open_time": candle["epoch"]  # Usando epoch como open_time
+                    "open_time": candle["epoch"]
                 }
             })
-        else:
-            return jsonify({"success": False, "error": "Candle não encontrado para o período exato"}), 404
-            
+        return jsonify({"success": False, "error": "Candle não encontrado"}), 404
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-# Executa se for run direto
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
