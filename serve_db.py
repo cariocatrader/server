@@ -20,7 +20,6 @@ def init_db():
             close REAL,
             volume INTEGER,
             PRIMARY KEY (symbol, epoch)
-        )
         ''')
         con.commit()
         con.close()
@@ -84,7 +83,7 @@ def get_candle():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-# 🔥 NOVO: Retorna lista de candles por paridade
+# Retorna lista de candles por paridade
 @app.route('/candles', methods=['GET'])
 def get_candles():
     try:
@@ -107,6 +106,52 @@ def get_candles():
         return jsonify(candles), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# 🔥 NOVO ENDPOINT - Candle Exato para Verificação de Resultados
+@app.route('/get_candle_exact', methods=['GET'])
+def get_candle_exact():
+    try:
+        paridade = request.args.get("paridade")
+        timeframe = int(request.args.get("timeframe"))  # Em segundos (ex: 300 para M5)
+        open_time = int(request.args.get("open_time"))   # Timestamp de abertura
+
+        # Calcula o timestamp de fechamento esperado
+        close_time = open_time + timeframe
+
+        con = sqlite3.connect(DB_PATH)
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+        
+        # Consulta otimizada para encontrar o candle exato
+        cur.execute("""
+            SELECT * FROM candles
+            WHERE symbol = ? 
+            AND epoch >= ? 
+            AND epoch < ?
+            ORDER BY epoch ASC
+            LIMIT 1
+        """, (paridade, open_time, close_time))
+        
+        row = cur.fetchone()
+        con.close()
+
+        if row:
+            candle = dict(row)
+            return jsonify({
+                "success": True,
+                "candle": {
+                    "open": candle["open"],
+                    "high": candle["high"],
+                    "low": candle["low"],
+                    "close": candle["close"],
+                    "open_time": candle["epoch"]  # Usando epoch como open_time
+                }
+            })
+        else:
+            return jsonify({"success": False, "error": "Candle não encontrado para o período exato"}), 404
+            
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 # Executa se for run direto
 if __name__ == "__main__":
