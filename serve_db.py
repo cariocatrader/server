@@ -5,11 +5,12 @@ import os
 app = Flask(__name__)
 DB_PATH = "shared.db"
 
-# Criação da tabela, se não existir
 def init_db():
     if not os.path.exists(DB_PATH):
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
+
+        # Tabela de candles
         cur.execute('''
         CREATE TABLE IF NOT EXISTS candles (
             symbol TEXT,
@@ -22,106 +23,125 @@ def init_db():
             PRIMARY KEY (symbol, epoch)
         )
         ''')
+
+        # Tabela de entradas
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS entradas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            paridade TEXT,
+            tempo INTEGER,
+            direcao TEXT,
+            timestamp_entrada INTEGER,
+            timestamp_fechamento INTEGER,
+            open_price REAL,
+            close_price REAL,
+            resultado TEXT
+        )
+        ''')
+
         con.commit()
         con.close()
 
-@app.route('/')
+@app.route("/")
 def index():
-    return "WebService de candles ativo!", 200
+    return "WebService de Candles e Entradas ativo!", 200
 
-@app.route('/salvar_candle', methods=['POST'])
+@app.route("/salvar_candle", methods=["POST"])
 def salvar_candle():
     try:
         data = request.get_json()
+        symbol = data["symbol"]
+        epoch = data["epoch"]
+        open_ = data["open"]
+        high = data["high"]
+        low = data["low"]
+        close = data["close"]
+        volume = data["volume"]
+
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute('''
             INSERT OR IGNORE INTO candles (symbol, epoch, open, high, low, close, volume)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            data['symbol'],
-            data['epoch'],
-            data['open'],
-            data['high'],
-            data['low'],
-            data['close'],
-            data['volume']
-        ))
+        ''', (symbol, epoch, open_, high, low, close, volume))
         con.commit()
         con.close()
+
         return jsonify({"success": True, "message": "Candle salvo"}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route('/candles', methods=['GET'])
-def get_candles():
-    symbol = request.args.get("symbol")
-    timeframe = int(request.args.get("timeframe", 60))
-    limit = int(request.args.get("limit", 30))
-    try:
-        con = sqlite3.connect(DB_PATH)
-        con.row_factory = sqlite3.Row
-        cur = con.cursor()
-        cur.execute('''
-            SELECT * FROM candles
-            WHERE symbol = ?
-            ORDER BY epoch DESC
-            LIMIT ?
-        ''', (symbol, limit))
-        rows = cur.fetchall()
-        con.close()
-        candles = [dict(row) for row in reversed(rows)]
-        return jsonify(candles)
-    except Exception as e:
-        return jsonify([])
-
-@app.route('/get_candle', methods=['GET'])
+@app.route("/get_candle", methods=["GET"])
 def get_candle():
-    paridade = request.args.get("paridade")
-    timestamp = int(request.args.get("timestamp"))
     try:
+        paridade = request.args.get("paridade")
+        timestamp = int(request.args.get("timestamp"))
+
         con = sqlite3.connect(DB_PATH)
-        con.row_factory = sqlite3.Row
         cur = con.cursor()
         cur.execute('''
-            SELECT * FROM candles
+            SELECT open, high, low, close, volume
+            FROM candles
             WHERE symbol = ? AND epoch = ?
         ''', (paridade, timestamp))
         row = cur.fetchone()
         con.close()
+
         if row:
-            return jsonify({"success": True, "candle": dict(row)})
-        return jsonify({"success": False, "error": "Candle não encontrado"})
+            open_, high, low, close, volume = row
+            return jsonify({
+                "success": True,
+                "candle": {
+                    "symbol": paridade,
+                    "epoch": timestamp,
+                    "open": open_,
+                    "high": high,
+                    "low": low,
+                    "close": close,
+                    "volume": volume
+                }
+            }), 200
+        else:
+            return jsonify({"success": False, "error": "Candle não encontrado"}), 404
+
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route('/get_candle_exact', methods=['GET'])
-def get_candle_exact():
-    paridade = request.args.get("paridade")
-    timeframe = int(request.args.get("timeframe"))  # em segundos
-    open_time = int(request.args.get("open_time"))
-
+@app.route("/registrar_entrada", methods=["POST"])
+def registrar_entrada():
     try:
+        data = request.get_json()
+        paridade = data["paridade"]
+        tempo = data["tempo"]
+        direcao = data["direcao"]
+        timestamp_entrada = data["timestamp_entrada"]
+        timestamp_fechamento = data["timestamp_fechamento"]
+        open_price = data["open_price"]
+        close_price = data["close_price"]
+        resultado = data["resultado"]
+
         con = sqlite3.connect(DB_PATH)
-        con.row_factory = sqlite3.Row
         cur = con.cursor()
-        cur.execute("""
-            SELECT * FROM candles
-            WHERE symbol = ? AND epoch = ?
-            LIMIT 1
-        """, (paridade, open_time))
-        row = cur.fetchone()
+        cur.execute('''
+            INSERT INTO entradas (
+                paridade, tempo, direcao,
+                timestamp_entrada, timestamp_fechamento,
+                open_price, close_price, resultado
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            paridade, tempo, direcao,
+            timestamp_entrada, timestamp_fechamento,
+            open_price, close_price, resultado
+        ))
+        con.commit()
         con.close()
 
-        if row:
-            return jsonify({"success": True, "candle": dict(row)})
-        return jsonify({"success": False, "error": "Candle não encontrado para o horário solicitado"})
+        return jsonify({"success": True, "message": "Entrada registrada"}), 200
+
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": str(e)}), 500
 
-# Inicializa o banco
-init_db()
-
-# Executa localmente (caso precise testar fora do Render)
 if __name__ == "__main__":
+    init_db()
     app.run(host="0.0.0.0", port=10000)
