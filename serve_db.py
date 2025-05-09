@@ -5,143 +5,169 @@ import os
 app = Flask(__name__)
 DB_PATH = "shared.db"
 
+# Inicializa o banco de dados se não existir
 def init_db():
-    if not os.path.exists(DB_PATH):
-        con = sqlite3.connect(DB_PATH)
-        cur = con.cursor()
+    con = sqlite3.connect(DB_PATH)
+    cur = con.cursor()
 
-        # Tabela de candles
-        cur.execute('''
-        CREATE TABLE IF NOT EXISTS candles (
-            symbol TEXT,
-            epoch INTEGER,
-            open REAL,
-            high REAL,
-            low REAL,
-            close REAL,
-            volume INTEGER,
-            PRIMARY KEY (symbol, epoch)
-        )
-        ''')
+    # Tabela de candles
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS candles (
+        symbol TEXT,
+        epoch INTEGER,
+        open REAL,
+        high REAL,
+        low REAL,
+        close REAL,
+        volume INTEGER,
+        PRIMARY KEY (symbol, epoch)
+    )
+    ''')
 
-        # Tabela de entradas
-        cur.execute('''
-        CREATE TABLE IF NOT EXISTS entradas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            paridade TEXT,
-            tempo INTEGER,
-            direcao TEXT,
-            timestamp_entrada INTEGER,
-            timestamp_fechamento INTEGER,
-            open_price REAL,
-            close_price REAL,
-            resultado TEXT
-        )
-        ''')
+    # Tabela de entradas (aprendizado da IA)
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS entradas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        paridade TEXT,
+        tempo INTEGER,
+        direcao TEXT,
+        resultado TEXT,
+        entrada REAL,
+        fechamento REAL,
+        timestamp_entrada INTEGER,
+        timestamp_fechamento INTEGER,
+        confluencias TEXT
+    )
+    ''')
 
-        con.commit()
-        con.close()
+    con.commit()
+    con.close()
 
-@app.route("/")
+init_db()
+
+@app.route('/')
 def index():
-    return "WebService de Candles e Entradas ativo!", 200
+    return '✅ WebService da Carioca IA ativo!', 200
 
-@app.route("/salvar_candle", methods=["POST"])
+# 🔹 Salvar candle enviado pelo listener
+@app.route('/salvar_candle', methods=['POST'])
 def salvar_candle():
     try:
         data = request.get_json()
-        symbol = data["symbol"]
-        epoch = data["epoch"]
-        open_ = data["open"]
-        high = data["high"]
-        low = data["low"]
-        close = data["close"]
-        volume = data["volume"]
+        symbol = data['symbol']
+        epoch = data['epoch']
+        open_ = data['open']
+        high = data['high']
+        low = data['low']
+        close = data['close']
+        volume = data['volume']
 
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute('''
-            INSERT OR IGNORE INTO candles (symbol, epoch, open, high, low, close, volume)
+            INSERT OR REPLACE INTO candles (symbol, epoch, open, high, low, close, volume)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (symbol, epoch, open_, high, low, close, volume))
         con.commit()
         con.close()
-
-        return jsonify({"success": True, "message": "Candle salvo"}), 200
+        return jsonify({"success": True, "message": "Candle salvo com sucesso"}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route("/get_candle", methods=["GET"])
-def get_candle():
-    try:
-        paridade = request.args.get("paridade")
-        timestamp = int(request.args.get("timestamp"))
+# 🔹 Retornar candles para análise/gráfico
+@app.route('/candles', methods=['GET'])
+def get_candles():
+    symbol = request.args.get("symbol")
+    limit = int(request.args.get("limit", 30))
+    timeframe = int(request.args.get("timeframe", 60))
 
-        con = sqlite3.connect(DB_PATH)
-        cur = con.cursor()
-        cur.execute('''
-            SELECT open, high, low, close, volume
-            FROM candles
-            WHERE symbol = ? AND epoch = ?
-        ''', (paridade, timestamp))
-        row = cur.fetchone()
-        con.close()
+    con = sqlite3.connect(DB_PATH)
+    cur = con.cursor()
+    cur.execute('''
+        SELECT * FROM candles WHERE symbol = ? ORDER BY epoch DESC LIMIT ?
+    ''', (symbol, limit * timeframe // 60))  # Corrigido para cobrir o tempo necessário
+    rows = cur.fetchall()
+    con.close()
 
-        if row:
-            open_, high, low, close, volume = row
-            return jsonify({
-                "success": True,
-                "candle": {
-                    "symbol": paridade,
-                    "epoch": timestamp,
-                    "open": open_,
-                    "high": high,
-                    "low": low,
-                    "close": close,
-                    "volume": volume
-                }
-            }), 200
-        else:
-            return jsonify({"success": False, "error": "Candle não encontrado"}), 404
+    if not rows:
+        return jsonify([]), 404
 
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    candles = [{
+        "symbol": r[0],
+        "timestamp": r[1],
+        "open": r[2],
+        "high": r[3],
+        "low": r[4],
+        "close": r[5],
+        "volume": r[6]
+    } for r in sorted(rows, key=lambda x: x[1])]
 
-@app.route("/registrar_entrada", methods=["POST"])
+    return jsonify(candles), 200
+
+# 🔹 Retornar candle exato para verificar resultado
+@app.route('/get_candle_exact', methods=['GET'])
+def get_candle_exact():
+    paridade = request.args.get("paridade")
+    timeframe = int(request.args.get("timeframe"))
+    open_time = int(request.args.get("open_time"))
+
+    con = sqlite3.connect(DB_PATH)
+    cur = con.cursor()
+    cur.execute('''
+        SELECT * FROM candles
+        WHERE symbol = ? AND epoch = ?
+    ''', (paridade, open_time))
+    row = cur.fetchone()
+    con.close()
+
+    if not row:
+        return jsonify({"success": False, "error": "Candle não encontrado"}), 404
+
+    candle = {
+        "symbol": row[0],
+        "timestamp": row[1],
+        "open": row[2],
+        "high": row[3],
+        "low": row[4],
+        "close": row[5],
+        "volume": row[6]
+    }
+
+    return jsonify({"success": True, "candle": candle}), 200
+
+# 🔹 Registrar entrada da IA para aprendizado
+@app.route('/registrar_entrada', methods=['POST'])
 def registrar_entrada():
     try:
         data = request.get_json()
         paridade = data["paridade"]
         tempo = data["tempo"]
         direcao = data["direcao"]
+        resultado = data["resultado"]
+        entrada = data["entrada"]
+        fechamento = data["fechamento"]
         timestamp_entrada = data["timestamp_entrada"]
         timestamp_fechamento = data["timestamp_fechamento"]
-        open_price = data["open_price"]
-        close_price = data["close_price"]
-        resultado = data["resultado"]
+        confluencias = data.get("confluencias", "")
 
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute('''
-            INSERT INTO entradas (
-                paridade, tempo, direcao,
-                timestamp_entrada, timestamp_fechamento,
-                open_price, close_price, resultado
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO entradas (paridade, tempo, direcao, resultado, entrada, fechamento, timestamp_entrada, timestamp_fechamento, confluencias)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            paridade, tempo, direcao,
+            paridade, tempo, direcao, resultado,
+            entrada, fechamento,
             timestamp_entrada, timestamp_fechamento,
-            open_price, close_price, resultado
+            confluencias
         ))
         con.commit()
         con.close()
-
         return jsonify({"success": True, "message": "Entrada registrada"}), 200
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+# 🔹 Rodar o servidor
 if __name__ == "__main__":
-    init_db()
     app.run(host="0.0.0.0", port=10000)
